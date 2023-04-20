@@ -45,6 +45,3 @@ if f.key_exists('data'):
         filename = st.text_input('Filename', value='organized-data-'+str(date.today())+'.csv')
         st.download_button(label='Download Data', data=data.to_csv(index=False), file_name=filename, mime='text/csv')
     
-
-
-

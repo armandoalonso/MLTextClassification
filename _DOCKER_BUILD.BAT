@@ -1,2 +1,2 @@
-docker build -t streamlit-ml -f Dockerfile .
-docker run -p 8501:8501 streamlit-ml
+docker build --no-cache -t ml-classification -f Dockerfile .
+docker run -p 8501:8501 --name ml-classification ml-classification

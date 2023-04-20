@@ -34,7 +34,7 @@ if f.key_exists('data'):
                 training_opts['ngram_end'] = st.number_input('ngram_end', value=1)
             with col2:
                 training_opts['c'] = st.number_input('c', value=1.0)
-                training_opts['k'] = st.number_input('k', value=1.0)
+                training_opts['k'] = st.number_input('k', value=1)
             with col3:
                 training_opts['penalty'] = st.selectbox('penalty', ['l1', 'l2'], key='penalty', index=1)
                 training_opts['loss'] = st.selectbox('loss', ['hinge', 'squared_hinge'], key='loss', index=1)
@@ -62,7 +62,7 @@ if f.key_exists('data'):
 
                 # display model metrics
                 st.subheader('Model Metrics')
-                accuracy, precision, recall, f1 = t.get_metrics(y_test, predicted)
+                accuracy, precision, recall, f1 = f.get_model_metrics(y_test, predicted)
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric('Accuracy: ', f.get_percent(accuracy))
@@ -74,8 +74,8 @@ if f.key_exists('data'):
                     st.metric('F1: ', f.get_rounded_float(f1))
 
                 model_pickle = f.pickle_model(model)
-                st.set_key('model', model_pickle)
-                st.set_key('train_model', True)
+                f.set_key('model', model_pickle)
+                f.set_key('train_model', True)
 
     # download model button
     if f.get_key('train_model'):

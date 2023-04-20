@@ -20,7 +20,7 @@ from sklearn.pipeline import Pipeline
 
 @st.cache_resource
 def load_spacy_model():
-    nlp = spacy.load('en_core_web_sm') # en_core_web_trf
+    nlp = spacy.load('en_core_web_lg')
     return nlp
 
 def get_spacy_en_parser():
@@ -130,24 +130,52 @@ def tokenizer(sentence):
     result = []
     for token in tokens:
         #check if token is a stop word or punctuation
-        if token.lemma_ in stop_words or token.lemma_ in punctuations:
+        if token.text in stop_words or token.text in punctuations:
             continue
-        if token.lemma_ != '-PRON-':
-            result.append(token.lemma_.lower().strip())
-        else:
-            result.append(token.lower_)
+        #print(token.text)
+        text = clean_token(token)
+        if text == '':
+            continue
+        #print(text)
+        result.append(token.lower_)
     return result
     
 class predictors(TransformerMixin):
     def transform(self, X, **transform_params):
-        return [clean_text(text) for text in X]
+        for text in X:
+            ct = clean_text(text)
+            yield ct
     def fit(self, X, y=None, **fit_params):
         return self
     def get_params(self, deep=True):
         return {}
 
 def clean_text(text):
+    #replace new lines with spaces
+    text = text.replace('\r', ' ')
+    text = text.replace('\n', ' ')
+    #replace emails
+    text = text.replace('\S*@\S*\s?', '')
+    #remove punctuations
+    text = text.replace('[^\w\s]',' ')
+    #remove double spaces
+    text = text.replace('\s+', ' ')
+    #remove numbers
+    text = text.replace('\d+', '')
+    #remove single characters
+    text = text.replace(r'\b[a-zA-Z]\b', '')
+    #remove special characters
+    text = text.replace('[^a-zA-Z]', '')
+    
     return text.strip().lower()
+
+def clean_token(token):
+    text = token.text.replace('\r', ' ')
+    text = text.replace('\n', ' ')
+    text = text.replace('[^\w\s]',' ')
+    text = text.replace('\s+', '')
+    return token.text.strip().lower()
+
 
 def train_model(pipeline, X_train, y_train):
     return pipeline.fit(X_train, y_train)
