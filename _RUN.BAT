@@ -1,0 +1,1 @@
+streamlit run START.py --server.maxUploadSize=1028 --server.maxMessageSize=1028
