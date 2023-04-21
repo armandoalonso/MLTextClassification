@@ -10,7 +10,7 @@ st.title('Train Model')
 if f.key_exists('data'):
     data = f.get_key('data')
 
-    training_algorithm = st.selectbox('Training Algorithm', ['Multinomial Naive Bayes', 'Support Vector Classification'], key='Training Algorithm')
+    training_algorithm = st.selectbox('Training Algorithm', ['Multinomial Naive Bayes', 'Support Vector Classification', 'Logistic Regression'], key='Training Algorithm')
 
     with st.form(key='train_model_form'):
         col1, col2 = st.columns(2)
@@ -24,7 +24,19 @@ if f.key_exists('data'):
         training_opts = {}
 
         if training_algorithm == 'Multinomial Naive Bayes':
-            pass
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                training_opts['ngram_start'] = st.number_input('ngram_start', value=1)
+                training_opts['ngram_end'] = st.number_input('ngram_end', value=1)
+            with col2:
+                training_opts['k_features'] = st.selectbox('k_features', ['all', 'best'], key='k_features', index=1)
+                training_opts['k_best'] = st.number_input('k (best features)', value=10)
+            with col3:
+                training_opts['alpha'] = st.number_input('alpha', value=1.0)
+                training_opts['force_alpha'] = st.selectbox('force_alpha', ['True', 'False'], key='force_alpha', index=1)
+            with col4:
+                training_opts['fit_prior'] = st.selectbox('fit_prior', ['True', 'False'], key='fit_prior', index=1)
 
         if training_algorithm == 'Support Vector Classification':
             col1, col2, col3, col4 = st.columns(4)
@@ -33,13 +45,35 @@ if f.key_exists('data'):
                 training_opts['ngram_start'] = st.number_input('ngram_start', value=1)
                 training_opts['ngram_end'] = st.number_input('ngram_end', value=1)
             with col2:
-                training_opts['c'] = st.number_input('c', value=1.0)
-                training_opts['k'] = st.number_input('k', value=1)
+                training_opts['k_features'] = st.selectbox('k_features', ['all', 'best'], key='k_features', index=1)
+                training_opts['k_best'] = st.number_input('k (best features)', value=10)
             with col3:
                 training_opts['penalty'] = st.selectbox('penalty', ['l1', 'l2'], key='penalty', index=1)
                 training_opts['loss'] = st.selectbox('loss', ['hinge', 'squared_hinge'], key='loss', index=1)
+                training_opts['c'] = st.number_input('c', value=1.0)
             with col4:
                 training_opts['max_iter'] = st.slider('max_iter', min_value=100, max_value=3000, value=1000, step=1)
+
+
+        if training_algorithm == 'Logistic Regression':
+            #st.markdown('The choice of the algorithm depends on the penalty chosen. Supported penalties by solver')
+            #st.dataframe(pd.DataFrame({'lbfgs', 'l2, None', 'liblinear', ['l1', 'l2'], 'newton-cg', ['l2', 'None'], 'newton-cholesky', ['l2', 'None'], 'sag', ['l2', 'None'], 'saga', ['elasticnet', 'l1', 'l2', 'None']}))
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                training_opts['ngram_start'] = st.number_input('ngram_start', value=1)
+                training_opts['ngram_end'] = st.number_input('ngram_end', value=1)
+            with col2:
+                training_opts['k_features'] = st.selectbox('k_features', ['all', 'best'], key='k_features', index=1)
+                training_opts['k_best'] = st.number_input('k (best features)', value=10)
+            with col3:
+                training_opts['penalty'] = st.selectbox('penalty', ['none', 'l1', 'l2', 'elasticnet'], key='penalty', index=1)
+                training_opts['solver'] = st.selectbox('solver', ['liblinear', 'saga'], key='solver', index=1)
+                training_opts['c'] = st.number_input('c', value=1.0)
+            with col4:
+                training_opts['max_iter'] = st.slider('max_iter', min_value=100, max_value=3000, value=1000, step=1)
+                
 
         train_model = st.form_submit_button(label='Train Model')
         if train_model:
@@ -75,11 +109,14 @@ if f.key_exists('data'):
 
                 model_pickle = f.pickle_model(model)
                 f.set_key('model', model_pickle)
+                f.set_key('model_name', f.generate_model_name(training_algorithm))
                 f.set_key('train_model', True)
 
     # download model button
     if f.get_key('train_model'):
         st.divider()
         model_pickle = f.get_key('model')
-        filename = st.text_input('Filename', value='model-'+str(date.today())+'.pkl')
+        filename = st.text_input('Filename', value=f.get_key('model_name'), key='filename')
         st.download_button(label='Download Model', data=model_pickle, file_name=filename, mime='application/octet-stream')
+
+

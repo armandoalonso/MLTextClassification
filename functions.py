@@ -3,7 +3,9 @@ import pickle
 import string
 import streamlit as st
 import pandas as pd
+from datetime import date
 import spacy
+import re
 from spacy.lang.en import English
 import numpy as np
 import matplotlib.pyplot as plt
@@ -14,6 +16,7 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from sklearn.svm import LinearSVC
 from sklearn.naive_bayes import MultinomialNB
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.feature_selection import SelectKBest, chi2
 from sklearn.pipeline import Pipeline
@@ -121,61 +124,73 @@ def normalize_target_distribution(df, **kwargs):
   
     df = df.groupby(target).apply(sampling_k_elements_from_list, k=kwargs['max_values_per_target'], balance=kwargs['balance_data']).reset_index(drop=True)
     return df
- 
-def tokenizer(sentence):
-    punctuations = string.punctuation
-    stop_words = spacy.lang.en.stop_words.STOP_WORDS
-    parser = get_spacy_en_parser()
-    tokens = parser(sentence)
-    result = []
+
+def get_lemmatized_text(sentence):
+    nlp = load_spacy_model()
+    doc = nlp(sentence)
+    results = []
+    for token in doc:
+        results.append(token.lemma_)
+    return results
+
+def to_lower_case(tokens):
+    results = []
     for token in tokens:
-        #check if token is a stop word or punctuation
-        if token.text in stop_words or token.text in punctuations:
-            continue
-        #print(token.text)
-        text = clean_token(token)
-        if text == '':
-            continue
-        #print(text)
-        result.append(token.lower_)
-    return result
-    
-class predictors(TransformerMixin):
-    def transform(self, X, **transform_params):
-        for text in X:
-            ct = clean_text(text)
-            yield ct
-    def fit(self, X, y=None, **fit_params):
-        return self
-    def get_params(self, deep=True):
-        return {}
+        results.append(token.strip().lower())
+    return results
 
-def clean_text(text):
-    #replace new lines with spaces
-    text = text.replace('\r', ' ')
-    text = text.replace('\n', ' ')
-    #replace emails
-    text = text.replace('\S*@\S*\s?', '')
-    #remove punctuations
-    text = text.replace('[^\w\s]',' ')
-    #remove double spaces
-    text = text.replace('\s+', ' ')
-    #remove numbers
-    text = text.replace('\d+', '')
-    #remove single characters
-    text = text.replace(r'\b[a-zA-Z]\b', '')
-    #remove special characters
-    text = text.replace('[^a-zA-Z]', '')
-    
-    return text.strip().lower()
+def remove_stop_words(tokens):
+    nlp = load_spacy_model()
+    results = []
+    for token in tokens:
+        if token not in nlp.Defaults.stop_words:
+            results.append(token)
+    return results
 
-def clean_token(token):
-    text = token.text.replace('\r', ' ')
-    text = text.replace('\n', ' ')
-    text = text.replace('[^\w\s]',' ')
-    text = text.replace('\s+', '')
-    return token.text.strip().lower()
+def remove_single_characters(tokens):
+    results = []
+    for token in tokens:
+        if len(token) > 1:
+            results.append(token)
+    return results
 
+def remove_entities(tokens):
+    nlp = load_spacy_model()
+    doc = nlp(" ".join(tokens))
+    results = []
+    for token in doc:
+        if token.ent_type_ == "":
+            results.append(token.text)
+    return results
+
+def remove_ppi(tokens):
+    results = []
+    for token in tokens:
+        # remove social security numbers
+        if not re.match(r'^\d{3}-\d{2}-\d{4}$', token):
+            # remove phone numbers
+            if not re.match(r'^\d{3}-\d{3}-\d{4}$', token):
+                # remove emails
+                if not re.match(r'^\S+@\S+$', token):
+                    results.append(token)
+    return results
+
+def remove_numbers(tokens):
+    results = []
+    for token in tokens:
+        if not token.isnumeric():
+            results.append(token)
+    return results
+
+def tokenizer(sentence):
+    tokens = get_lemmatized_text(sentence)
+    tokens = to_lower_case(tokens)
+    tokens = remove_stop_words(tokens)
+    tokens = remove_single_characters(tokens)
+    tokens = remove_entities(tokens)
+    tokens = remove_ppi(tokens) 
+    tokens = remove_numbers(tokens)
+    return tokens
 
 def train_model(pipeline, X_train, y_train):
     return pipeline.fit(X_train, y_train)
@@ -203,20 +218,49 @@ def create_pipeline(training_algorithm, training_opts):
     if training_algorithm == 'Support Vector Classification':
         return create_svc_pipeline(training_opts)
     elif training_algorithm == 'Multinomial Naive Bayes':
-        return None
+        return create_multi_nb_pipeline(training_opts)
+    elif training_algorithm == 'Logistic Regression':
+        return create_log_reg_pipeline(training_opts)
 
 def create_svc_pipeline(training_opts):
     ngram_tuple = (training_opts['ngram_start'], training_opts['ngram_end'])
-    k = training_opts['k']
+    k_features = training_opts['k_features']
+    k = 'all' if k_features == 'all' else training_opts['k_best']
     max_iter = training_opts['max_iter']
     c = training_opts['c']
     penalty = training_opts['penalty']
     loss = training_opts['loss']
 
-    pipeline = Pipeline([('cleaner', predictors()),
-                         ('vect', TfidfVectorizer(tokenizer=tokenizer, ngram_range=ngram_tuple, sublinear_tf=True)),
+    pipeline = Pipeline([('vect', TfidfVectorizer(tokenizer=tokenizer, ngram_range=ngram_tuple, sublinear_tf=True)),
                          ('chi',  SelectKBest(chi2, k=k)),
                          ('clf', LinearSVC(C=c, penalty=penalty, max_iter=max_iter, loss=loss, dual=False))])
+    return pipeline
+
+def create_multi_nb_pipeline(training_opts):
+    ngram_tuple = (training_opts['ngram_start'], training_opts['ngram_end'])
+    k_features = training_opts['k_features']
+    k = 'all' if k_features == 'all' else training_opts['k_best']
+    alpha = training_opts['alpha']
+    force_alpha = training_opts['force_alpha'] == 'True'
+    fit_prior = training_opts['fit_prior'] == 'True'
+
+    pipeline = Pipeline([('vect', TfidfVectorizer(tokenizer=tokenizer, ngram_range=ngram_tuple, sublinear_tf=True)),
+                         ('chi',  SelectKBest(chi2, k=k)),
+                         ('clf', MultinomialNB(alpha=alpha, force_alpha=force_alpha, fit_prior=fit_prior))])
+    return pipeline
+
+def create_log_reg_pipeline(training_opts):
+    ngram_tuple = (training_opts['ngram_start'], training_opts['ngram_end'])
+    k_features = training_opts['k_features']
+    k = 'all' if k_features == 'all' else training_opts['k_best']
+    max_iter = training_opts['max_iter']
+    c = training_opts['c']
+    penalty = training_opts['penalty']
+    solver = training_opts['solver']
+
+    pipeline = Pipeline([('vect', TfidfVectorizer(tokenizer=tokenizer, ngram_range=ngram_tuple, sublinear_tf=True)),
+                         ('chi',  SelectKBest(chi2, k=k)),
+                         ('clf', LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, solver=solver))])
     return pipeline
 
 def pickle_model(model):
@@ -232,3 +276,8 @@ def load_model(model_name):
     with open(model_name, 'rb') as file:
         model = pickle.load(file)
     return model
+
+def generate_model_name(algorithm):
+    #remove spaces
+    algorithm = algorithm.replace(' ', '_').lower()
+    return algorithm+'_'+str(date.today())+'.pkl'
