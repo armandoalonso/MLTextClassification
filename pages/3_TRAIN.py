@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import functions as f
 from datetime import date
+import time
 
 
 st.set_page_config(layout="wide")
@@ -11,7 +12,7 @@ if f.key_exists('data'):
     data = f.get_key('data')
 
     training_algorithm = st.selectbox('Training Algorithm', ['Multinomial Naive Bayes', 'Support Vector Classification', 'Logistic Regression'], key='Training Algorithm')
-
+    
     with st.form(key='train_model_form'):
         col1, col2 = st.columns(2)
 
@@ -22,7 +23,10 @@ if f.key_exists('data'):
 
         test_size = st.slider('Test/Train Split', min_value=0.0, max_value=1.0, value=0.2, step=0.1, key='Test Size')
         training_opts = {}
+        preprocess_text = st.checkbox('Preprocess Text', value=True, key='Preprocess Text')
+        default_tokenizer = st.checkbox('Use Default Tokenizer', value=True, key='Default Tokenizer')
 
+        
         if training_algorithm == 'Multinomial Naive Bayes':
             col1, col2, col3, col4 = st.columns(4)
 
@@ -37,10 +41,10 @@ if f.key_exists('data'):
                 training_opts['force_alpha'] = st.selectbox('force_alpha', ['True', 'False'], key='force_alpha', index=1)
             with col4:
                 training_opts['fit_prior'] = st.selectbox('fit_prior', ['True', 'False'], key='fit_prior', index=1)
+        
 
         if training_algorithm == 'Support Vector Classification':
             col1, col2, col3, col4 = st.columns(4)
-
             with col1:
                 training_opts['ngram_start'] = st.number_input('ngram_start', value=1)
                 training_opts['ngram_end'] = st.number_input('ngram_end', value=1)
@@ -60,7 +64,6 @@ if f.key_exists('data'):
             #st.dataframe(pd.DataFrame({'lbfgs', 'l2, None', 'liblinear', ['l1', 'l2'], 'newton-cg', ['l2', 'None'], 'newton-cholesky', ['l2', 'None'], 'sag', ['l2', 'None'], 'saga', ['elasticnet', 'l1', 'l2', 'None']}))
 
             col1, col2, col3, col4 = st.columns(4)
-
             with col1:
                 training_opts['ngram_start'] = st.number_input('ngram_start', value=1)
                 training_opts['ngram_end'] = st.number_input('ngram_end', value=1)
@@ -78,17 +81,39 @@ if f.key_exists('data'):
         train_model = st.form_submit_button(label='Train Model')
         if train_model:
             with st.spinner('Training Model...'):
+                start = time.time()
+
                 # split data
                 X_train, X_test, y_train, y_test = f.split_data(data, features, target, test_size)
 
+                # preprocess text
+                if preprocess_text:
+                    X_train = f.preprocess_text_df(X_train, {
+                        'lower_case': True,  'remove_punctuation': True, 
+                        'remove_stop_words': True, 'remove_numbers': True, 
+                        'normalize_spaces': True,  'remove_emails': True,
+                        'lemmatize': True, 'remove_stop_words': True,
+                        'remove_single_characters_token': True, 'remove_entities_tokens': True
+                    })
+                    X_test = f.preprocess_text_df(X_test, {
+                        'lower_case': True, 'remove_punctuation': True, 
+                        'remove_stop_words': True, 'remove_numbers': True, 
+                        'normalize_spaces': True, 'remove_emails': True,
+                        'lemmatize': True, 'remove_stop_words': True,
+                        'remove_single_characters_token': True, 'remove_entities_tokens': True 
+                    })
+
                 # create pipeline
-                pipline = f.create_pipeline(training_algorithm, training_opts)
+                pipline = f.create_pipeline(training_algorithm, training_opts, default_tokenizer)
 
                 # train model
                 model = f.train_model(pipline, X_train, y_train)
 
                 # test model
                 predicted = f.predict_set(model, X_test)
+
+                end = time.time()
+                st.success(f'Training completed in {end - start * 1000} ms')
 
                 # display predicted results
                 st.subheader('Predicted')

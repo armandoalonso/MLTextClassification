@@ -125,73 +125,109 @@ def normalize_target_distribution(df, **kwargs):
     df = df.groupby(target).apply(sampling_k_elements_from_list, k=kwargs['max_values_per_target'], balance=kwargs['balance_data']).reset_index(drop=True)
     return df
 
+def text_to_lower_case(text):
+    return text.lower()
+
+def remove_urls_from_text(text):
+    return re.sub(r'http\S+', '', text)
+
+def remove_punctuation_from_text(text):
+    result = []
+    for char in text:
+        if char not in string.punctuation:
+            result.append(char)
+    return "".join(result)
+
+def remove_numbers_from_text(text):
+    result = []
+    for char in text:
+        if char not in string.digits:
+            result.append(char)
+    return "".join(result)
+
+def normalize_spaces_in_text(text):
+    return re.sub('\s+', ' ', text).strip()
+
+def remove_emails_from_text(text):
+    return re.sub(r'[\w\.-]+@[\w\.-]+', '', text) 
+
 def get_lemmatized_text(sentence):
     nlp = load_spacy_model()
     doc = nlp(sentence)
     results = []
     for token in doc:
-        results.append(token.lemma_)
-    return results
+        results.append(token.lemma_.strip())
+    return " ".join(results)
 
-def to_lower_case(tokens):
-    results = []
-    for token in tokens:
-        results.append(token.strip().lower())
-    return results
-
-def remove_stop_words(tokens):
+def remove_stop_words(text):
     nlp = load_spacy_model()
     results = []
-    for token in tokens:
-        if token not in nlp.Defaults.stop_words:
-            results.append(token)
-    return results
+    doc = nlp(text)
+    for token in doc:
+        if token.text.strip() not in nlp.Defaults.stop_words:
+            results.append(token.text.strip())
+    return " ".join(results)
 
-def remove_single_characters(tokens):
-    results = []
-    for token in tokens:
-        if len(token) > 1:
-            results.append(token)
-    return results
-
-def remove_entities(tokens):
+def remove_entities_tokens(text):
     nlp = load_spacy_model()
-    doc = nlp(" ".join(tokens))
+    doc = nlp(text)
     results = []
     for token in doc:
         if token.ent_type_ == "":
-            results.append(token.text)
-    return results
+            results.append(token.text.strip())
+    return " ".join(results)
 
-def remove_ppi(tokens):
+def preprocess_text_df(df, opts):
+    actionList = []
+    custom = opts['custom'].split(",")
+
+    if opts['lower_case']:
+        actionList.append(text_to_lower_case)
+    if opts['remove_punctuation']:
+        actionList.append(remove_punctuation_from_text)
+    if opts['remove_numbers']:
+        actionList.append(remove_numbers_from_text)
+    if opts['normalize_spaces']:
+        actionList.append(normalize_spaces_in_text)
+    if opts['remove_emails']:
+        actionList.append(remove_emails_from_text)
+    if opts['remove_urls']:
+        actionList.append(remove_urls_from_text)
+    if opts['lemmatize']:
+        actionList.append(get_lemmatized_text)
+    if opts['remove_stop_words']:
+        actionList.append(remove_stop_words)
+    if opts['remove_entities_tokens']:
+        actionList.append(remove_entities_tokens)
+
+    if "features" in opts:
+        #iterate through each row
+        for i in range(len(df)):
+            #iterate through each feature
+            for feature in opts['features']:
+                df[feature][i] = transform_data(str(df[feature][i]), actionList)
+                df[feature][i] = remove_cutsom_tokens(df[feature][i], custom)
+    else:
+        df = df.apply(lambda x: transform_data(x, actionList))
+    return df
+
+def remove_cutsom_tokens(text, custom):
+    nlp = load_spacy_model()
+    doc = nlp(text)
     results = []
-    for token in tokens:
-        # remove social security numbers
-        if not re.match(r'^\d{3}-\d{2}-\d{4}$', token):
-            # remove phone numbers
-            if not re.match(r'^\d{3}-\d{3}-\d{4}$', token):
-                # remove emails
-                if not re.match(r'^\S+@\S+$', token):
-                    results.append(token)
-    return results
+    for token in doc:
+        if token.text.strip() not in custom:
+            results.append(token.text.strip())
+    return " ".join(results)
+   
+def transform_data(text, actionList):
+    for action in actionList:
+        text = action(text)
+    return text
 
-def remove_numbers(tokens):
-    results = []
-    for token in tokens:
-        if not token.isnumeric():
-            results.append(token)
-    return results
-
-def tokenizer(sentence):
-    tokens = get_lemmatized_text(sentence)
-    tokens = to_lower_case(tokens)
-    tokens = remove_stop_words(tokens)
-    tokens = remove_single_characters(tokens)
-    tokens = remove_entities(tokens)
-    tokens = remove_ppi(tokens) 
-    tokens = remove_numbers(tokens)
-    return tokens
-
+def tokenizer(text):
+    return text.split()
+    
 def train_model(pipeline, X_train, y_train):
     return pipeline.fit(X_train, y_train)
 
@@ -214,15 +250,21 @@ def split_data(df, features, target, test_size=0.2):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
     return X_train, X_test, y_train, y_test
 
-def create_pipeline(training_algorithm, training_opts):
+def create_pipeline(training_algorithm, training_opts, default_tokenizer=True):
     if training_algorithm == 'Support Vector Classification':
-        return create_svc_pipeline(training_opts)
+        return create_svc_pipeline(training_opts, default_tokenizer)
     elif training_algorithm == 'Multinomial Naive Bayes':
-        return create_multi_nb_pipeline(training_opts)
+        return create_multi_nb_pipeline(training_opts, default_tokenizer)
     elif training_algorithm == 'Logistic Regression':
-        return create_log_reg_pipeline(training_opts)
+        return create_log_reg_pipeline(training_opts, default_tokenizer)
 
-def create_svc_pipeline(training_opts):
+def create_tokenizer(ngram_tuple, default_tokenizer=True):
+    if default_tokenizer == True:
+        return TfidfVectorizer(ngram_range=ngram_tuple, sublinear_tf=True)
+    else:
+        return TfidfVectorizer(tokenizer=tokenizer, ngram_range=ngram_tuple, sublinear_tf=True)       
+
+def create_svc_pipeline(training_opts, default_tokenizer=True):
     ngram_tuple = (training_opts['ngram_start'], training_opts['ngram_end'])
     k_features = training_opts['k_features']
     k = 'all' if k_features == 'all' else training_opts['k_best']
@@ -231,12 +273,12 @@ def create_svc_pipeline(training_opts):
     penalty = training_opts['penalty']
     loss = training_opts['loss']
 
-    pipeline = Pipeline([('vect', TfidfVectorizer(tokenizer=tokenizer, ngram_range=ngram_tuple, sublinear_tf=True)),
+    pipeline = Pipeline([('vect', create_tokenizer(ngram_tuple, default_tokenizer)),
                          ('chi',  SelectKBest(chi2, k=k)),
                          ('clf', LinearSVC(C=c, penalty=penalty, max_iter=max_iter, loss=loss, dual=False))])
     return pipeline
 
-def create_multi_nb_pipeline(training_opts):
+def create_multi_nb_pipeline(training_opts, default_tokenizer=True):
     ngram_tuple = (training_opts['ngram_start'], training_opts['ngram_end'])
     k_features = training_opts['k_features']
     k = 'all' if k_features == 'all' else training_opts['k_best']
@@ -244,12 +286,12 @@ def create_multi_nb_pipeline(training_opts):
     force_alpha = training_opts['force_alpha'] == 'True'
     fit_prior = training_opts['fit_prior'] == 'True'
 
-    pipeline = Pipeline([('vect', TfidfVectorizer(tokenizer=tokenizer, ngram_range=ngram_tuple, sublinear_tf=True)),
+    pipeline = Pipeline([('vect', create_tokenizer(ngram_tuple, default_tokenizer)),
                          ('chi',  SelectKBest(chi2, k=k)),
                          ('clf', MultinomialNB(alpha=alpha, force_alpha=force_alpha, fit_prior=fit_prior))])
     return pipeline
 
-def create_log_reg_pipeline(training_opts):
+def create_log_reg_pipeline(training_opts, default_tokenizer=True):
     ngram_tuple = (training_opts['ngram_start'], training_opts['ngram_end'])
     k_features = training_opts['k_features']
     k = 'all' if k_features == 'all' else training_opts['k_best']
@@ -258,7 +300,7 @@ def create_log_reg_pipeline(training_opts):
     penalty = training_opts['penalty']
     solver = training_opts['solver']
 
-    pipeline = Pipeline([('vect', TfidfVectorizer(tokenizer=tokenizer, ngram_range=ngram_tuple, sublinear_tf=True)),
+    pipeline = Pipeline([('vect', create_tokenizer(ngram_tuple, default_tokenizer)),
                          ('chi',  SelectKBest(chi2, k=k)),
                          ('clf', LogisticRegression(C=c, penalty=penalty, max_iter=max_iter, solver=solver))])
     return pipeline
